@@ -71,6 +71,8 @@ Uzaktayken (gece modu dahil) mesajlar telefonuna Telegram'dan da gider:
 **Bilmen gerekenler:**
 - Anahtar Windows hesabına özel şifrelenerek saklanır. Klasörü başka bilgisayara taşırsan anahtarı orada bir kez tekrar girmen gerekir.
 - Telefon bildirimi seslerin sırasını beklemez, mesaj gelince hemen gider. Eski mesaj sınırı sadece ses için geçerlidir.
+- **Gece modunda da gönder** kutusu (varsayılan açık) kapatılırsa gece modunda telefon da susar.
+- Her mesajın telefona gidip gitmediği (gitmediyse sebebi) `%LOCALAPPDATA%\ClaudeSes\telefon.log` dosyasına yazılır; son 500 satır tutulur.
 
 ## Nasıl çalışır
 - **Hook'lar:** Claude Code onay istediğinde ve iş bitince `speak.ps1` dosyasını çağırır. Bitişte Claude'un son mesajındaki `🔊` satırı okunur.

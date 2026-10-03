@@ -36,11 +36,13 @@ Check "bozuk dosya -> varsayılan" (Get-CSSettings $tmp).maxAgeMin 2
 $s = Get-CSSettings $tmp
 Check "kısmi dosya -> verilen değer" $s.idleMin 5
 Check "kısmi dosya -> eksik değer varsayılan" $s.speakDone $true
-$s.rate = "fast"; $s.nightEnabled = $false
+Check "eski dosya -> gece telefona gönder açık" $s.phoneNight $true
+$s.rate = "fast"; $s.nightEnabled = $false; $s.phoneNight = $false
 Save-CSSettings $s $tmp
 $s2 = Get-CSSettings $tmp
 Check "kaydet/oku hız" $s2.rate "fast"
 Check "kaydet/oku gece kapalı" $s2.nightEnabled $false
+Check "kaydet/oku gece telefon kapalı" $s2.phoneNight $false
 Remove-Item $tmp
 
 Write-Host "--- Gece modu"
@@ -109,6 +111,22 @@ $phNoChat = Get-CSSettings "yok.json"; $phNoChat.phoneEnabled = $true; $phNoChat
 Check "telefon: bağlı değilse gitmez" (P "bitti" "away" 0 $phNoChat) "False|bağlı değil"
 $phNoInfo = Get-CSSettings "yok.json"; $phNoInfo.phoneEnabled = $true; $phNoInfo.telegramTokenEnc = "x"; $phNoInfo.telegramChatId = "1"; $phNoInfo.phoneInfo = $false
 Check "telefon: ara bilgi kapalı -> gitmez" (P "bilgi" "away" 0 $phNoInfo) "False|kapalı tür"
+$phNoNight = Get-CSSettings "yok.json"; $phNoNight.phoneEnabled = $true; $phNoNight.telegramTokenEnc = "x"; $phNoNight.telegramChatId = "1"; $phNoNight.phoneNight = $false
+Check "telefon: gece kapalıysa gece gitmez" (P "bitti" "quiet" 0 $phNoNight) "False|gece"
+Check "telefon: gece kapalıyken gündüz uzakta gider" (P "bitti" "away" 0 $phNoNight) "True|"
+
+Write-Host "--- Telefon logu"
+$lm = [pscustomobject]@{ time = "2026-10-03T05:00:00.0000000+03:00"; kind = "bitti"; text = "x"; project = "Zincir"; link = "" }
+Check "log: gitti" (Format-CSPhoneLogLine $lm $true "") "2026-10-03 05:00:00 Zincir bitti gitti"
+Check "log: gitmedi" (Format-CSPhoneLogLine $lm $false "gece") "2026-10-03 05:00:00 Zincir bitti gitmedi: gece"
+$tmpLog = Join-Path ([IO.Path]::GetTempPath()) "cs-test-telefon.log"
+Remove-Item $tmpLog -ErrorAction SilentlyContinue
+1..505 | ForEach-Object { Add-CSPhoneLog "satır $_" $tmpLog 500 }
+$lines = @(Get-Content $tmpLog -Encoding UTF8)
+Check "log: en fazla 500 satır" $lines.Count 500
+Check "log: en yeni satır sonda" $lines[-1] "satır 505"
+Check "log: en eski satırlar silinir" $lines[0] "satır 6"
+Remove-Item $tmpLog
 
 Write-Host "--- Rapor linki"
 Check "link: claude.ai markdown" (Find-ReportLink "Detaylar [raporda](https://claude.ai/artifact/abc).") "https://claude.ai/artifact/abc"

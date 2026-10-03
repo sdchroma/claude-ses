@@ -210,9 +210,11 @@ function Show-Settings {
     $chkPDone = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 268 "İş bitti özetleri (rapor linkiyle)"
     $chkPInfo = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 292 "Ara bilgilendirmeler"
     $chkPApproval.Checked = $s.phoneApproval; $chkPDone.Checked = $s.phoneDone; $chkPInfo.Checked = $s.phoneInfo
-    $btnPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Button) 15 330 "Test bildirimi gönder"
+    $chkPNight = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 322 "Gece modunda da gönder"
+    $chkPNight.Checked = $s.phoneNight
+    $btnPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Button) 15 352 "Test bildirimi gönder"
     $btnPhoneTest.Width = 160
-    $lblPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 185 335 ""
+    $lblPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 185 357 ""
     $lblPhoneTest.MaximumSize = "175,0"
 
     $btnConnect.add_Click({
@@ -271,6 +273,7 @@ function Show-Settings {
         $new.phoneApproval = $chkPApproval.Checked
         $new.phoneDone = $chkPDone.Checked
         $new.phoneInfo = $chkPInfo.Checked
+        $new.phoneNight = $chkPNight.Checked
         $new.telegramTokenEnc = $script:pendingTokenEnc
         $new.telegramChatId = $script:pendingChatId
         Save-CSSettings $new

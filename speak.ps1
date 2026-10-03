@@ -88,7 +88,10 @@ try {
     # Telefon: ses sırasını beklemeden hemen. Uygulama kapalıysa "uzakta" kabul edilir.
     $phoneMode = if ($appRunning -or $state.mode -eq 'quiet') { $state.mode } else { 'away' }
     $pd = Get-PhoneDecision $msg $settings $phoneMode (Get-IdleMinutes)
-    if ($pd.send) { try { Send-CSTelegram $settings $msg } catch { Write-CSError "telegram: $_" } }
+    if ($pd.send) {
+        try { Send-CSTelegram $settings $msg; Add-CSPhoneLog (Format-CSPhoneLogLine $msg $true '') }
+        catch { Write-CSError "telegram: $_"; Add-CSPhoneLog (Format-CSPhoneLogLine $msg $false "hata: $_") }
+    } else { Add-CSPhoneLog (Format-CSPhoneLogLine $msg $false $pd.note) }
 
     if ($appRunning) { New-CSMessage $Text $kind; exit 0 }
 

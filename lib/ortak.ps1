@@ -6,6 +6,8 @@ $script:CSHistory    = Join-Path $CSDir 'gecmis.jsonl'
 $script:CSState      = Join-Path $CSDir 'durum.json'
 $script:CSSettingsPath = Join-Path $CSDir 'ayarlar.json'
 $script:CSErrorLog   = Join-Path $CSDir 'hata.log'
+$script:CSPhoneLog   = Join-Path $CSDir 'telefon.log'
+$script:CSPhoneLogMax = 500
 $script:CSAppMutex   = 'Local\ClaudeSes.App'
 $script:CSSpeakMutex = 'Local\ClaudeSes.Speak'
 $script:CSHistoryMax = 20
@@ -58,6 +60,7 @@ function New-CSDefaultSettings {
         phoneApproval = $true
         phoneDone     = $true
         phoneInfo     = $true
+        phoneNight    = $true      # gece modunda da gönder
         telegramTokenEnc = ""      # DPAPI ile şifreli bot anahtarı
         telegramChatId   = ""
     }
@@ -73,7 +76,7 @@ function Get-CSSettings([string]$path = $CSSettingsPath) {
             $v = $f.$k
             if ($null -eq $v) { continue }
             switch ($k) {
-                { $_ -in 'nightEnabled', 'speakApproval', 'speakDone', 'speakInfo', 'startup', 'phoneEnabled', 'phoneApproval', 'phoneDone', 'phoneInfo' } { if ($v -is [bool]) { $s[$k] = $v } }
+                { $_ -in 'nightEnabled', 'speakApproval', 'speakDone', 'speakInfo', 'startup', 'phoneEnabled', 'phoneApproval', 'phoneDone', 'phoneInfo', 'phoneNight' } { if ($v -is [bool]) { $s[$k] = $v } }
                 'telegramTokenEnc' { $s[$k] = "$v" }
                 'telegramChatId' { if ("$v" -match '^-?\d+$') { $s[$k] = "$v" } }
                 'nightTime' { if ("$v" -match '^([01]\d|2[0-3]):[0-5]\d$') { $s[$k] = "$v" } }
@@ -147,9 +150,27 @@ function Get-PhoneDecision($msg, $settings, [string]$mode, [double]$idleMin) {
     if (-not $settings.telegramTokenEnc -or -not $settings.telegramChatId) { return & $no 'bağlı değil' }
     $kindOn = switch ($msg.kind) { 'onay' { $settings.phoneApproval } 'bitti' { $settings.phoneDone } default { $settings.phoneInfo } }
     if (-not $kindOn) { return & $no 'kapalı tür' }
+    if ($mode -eq 'quiet' -and -not $settings.phoneNight) { return & $no 'gece' }
     $away = switch ($mode) { 'quiet' { $true } 'here' { $false } 'away' { $true } default { $idleMin -ge $settings.idleMin } }
     if (-not $away) { return & $no 'buradaydın' }
     return [pscustomobject]@{ send = $true; note = '' }
+}
+
+# Telefon logu: her mesaj için tek satır (gitti / gitmedi: sebep / hata: ...)
+function Format-CSPhoneLogLine($msg, [bool]$sent, [string]$note) {
+    $t = ([datetime]$msg.time).ToString('yyyy-MM-dd HH:mm:ss')
+    $result = if ($sent) { 'gitti' } else { "gitmedi: $note" }
+    return (@($t, $msg.project, $msg.kind, $result) | Where-Object { $_ }) -join ' '
+}
+
+function Add-CSPhoneLog([string]$line, [string]$path = $CSPhoneLog, [int]$max = $CSPhoneLogMax) {
+    try {
+        $lines = @()
+        if (Test-Path $path) { $lines = @([IO.File]::ReadAllLines($path, [Text.Encoding]::UTF8)) }
+        $lines = @($lines + $line)
+        if ($lines.Count -gt $max) { $lines = $lines[($lines.Count - $max)..($lines.Count - 1)] }
+        [IO.File]::WriteAllLines($path, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+    } catch {}
 }
 
 # Rapor/doküman linki: bilinen doküman siteleri ya da metni "rapor/report" olan link
