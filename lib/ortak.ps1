@@ -61,6 +61,8 @@ function New-CSDefaultSettings {
         phoneDone     = $true
         phoneInfo     = $true
         phoneNight    = $true      # gece modunda da gönder
+        phoneReport   = $true      # iş bittiğinde kısa rapor maddeleri (📋)
+        phoneFiles    = $true      # iş bittiğinde dosya ekleri (📎)
         telegramTokenEnc = ""      # DPAPI ile şifreli bot anahtarı
         telegramChatId   = ""
     }
@@ -76,7 +78,7 @@ function Get-CSSettings([string]$path = $CSSettingsPath) {
             $v = $f.$k
             if ($null -eq $v) { continue }
             switch ($k) {
-                { $_ -in 'nightEnabled', 'speakApproval', 'speakDone', 'speakInfo', 'startup', 'phoneEnabled', 'phoneApproval', 'phoneDone', 'phoneInfo', 'phoneNight' } { if ($v -is [bool]) { $s[$k] = $v } }
+                { $_ -in 'nightEnabled', 'speakApproval', 'speakDone', 'speakInfo', 'startup', 'phoneEnabled', 'phoneApproval', 'phoneDone', 'phoneInfo', 'phoneNight', 'phoneReport', 'phoneFiles' } { if ($v -is [bool]) { $s[$k] = $v } }
                 'telegramTokenEnc' { $s[$k] = "$v" }
                 'telegramChatId' { if ("$v" -match '^-?\d+$') { $s[$k] = "$v" } }
                 'nightTime' { if ("$v" -match '^([01]\d|2[0-3]):[0-5]\d$') { $s[$k] = "$v" } }
@@ -157,20 +159,24 @@ function Get-PhoneDecision($msg, $settings, [string]$mode, [double]$idleMin) {
 }
 
 # Telefon logu: her mesaj için tek satır (gitti / gitmedi: sebep / hata: ...)
-function Format-CSPhoneLogLine($msg, [bool]$sent, [string]$note) {
+# $result verilirse "gitti/gitmedi" yerine o yazılır (ör. "ek a.png gitti")
+function Format-CSPhoneLogLine($msg, [bool]$sent, [string]$note, [string]$result = '') {
     $t = ([datetime]$msg.time).ToString('yyyy-MM-dd HH:mm:ss')
-    $result = if ($sent) { 'gitti' } else { "gitmedi: $note" }
+    if (-not $result) { $result = if ($sent) { 'gitti' } else { "gitmedi: $note" } }
     return (@($t, $msg.project, $msg.kind, $result) | Where-Object { $_ }) -join ' '
 }
 
+# Hook ve ek gönderici aynı anda yazabilir: isimli kilitle sırayla
 function Add-CSPhoneLog([string]$line, [string]$path = $CSPhoneLog, [int]$max = $CSPhoneLogMax) {
+    $lock = New-Object System.Threading.Mutex($false, 'Local\ClaudeSes.PhoneLog')
+    try { $null = $lock.WaitOne(5000) } catch [System.Threading.AbandonedMutexException] {}
     try {
         $lines = @()
         if (Test-Path $path) { $lines = @([IO.File]::ReadAllLines($path, [Text.Encoding]::UTF8)) }
         $lines = @($lines + $line)
         if ($lines.Count -gt $max) { $lines = $lines[($lines.Count - $max)..($lines.Count - 1)] }
         [IO.File]::WriteAllLines($path, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
-    } catch {}
+    } catch {} finally { try { $lock.ReleaseMutex() } catch {}; $lock.Dispose() }
 }
 
 # Rapor/doküman linki: bilinen doküman siteleri ya da metni "rapor/report" olan link
@@ -187,6 +193,77 @@ function Find-ReportLink([string]$message) {
     return ""
 }
 
+$script:CSReportMax     = 4                  # en fazla madde
+$script:CSReportItemMax = 150                # madde başına karakter
+$script:CSFilesMax      = 5                  # mesaj başına ek
+$script:CSFileMaxBytes  = 50MB               # Telegram bot sınırı
+$script:CSPhotoMaxBytes = 10MB               # üstündeki resimler dosya olarak gider
+$script:CSPhotoExt      = '.png', '.jpg', '.jpeg', '.webp'
+$script:CSFileExt       = $CSPhotoExt + @('.gif', '.pdf', '.md', '.txt', '.csv', '.html', '.docx', '.xlsx', '.pptx', '.apk', '.mp4', '.mp3', '.wav')
+# Adı ya da klasörü gizli bilgi kokan dosyalar, uzantısı izinli olsa bile gönderilmez
+$script:CSFileDeny      = '(?i)([\\/]|^)\.(env|ssh|aws|gnupg|git|azure|kube|docker)([\\/.]|$)|id_(rsa|dsa|ecdsa|ed25519)|credential|secret|passw|token|şifre|sifre|parola|private'
+
+function Get-MarkedLines([string]$message, [int]$codepoint) {
+    $marker = [char]::ConvertFromUtf32($codepoint)
+    return @($message -split "\r?\n" | Where-Object { $_.Trim().StartsWith($marker) } | ForEach-Object { $_.Trim().Substring($marker.Length).Trim() })
+}
+
+# Son mesajdaki "📋" satırının altındaki madde listesi (en fazla 4 kısa madde). Sadece Telegram'a gider, okunmaz.
+function Get-StopReport([string]$message) {
+    if (-not $message) { return @() }
+    $marker = [char]::ConvertFromUtf32(0x1F4CB)
+    $lines = $message -split "\r?\n"
+    $start = -1
+    for ($i = $lines.Count - 1; $i -ge 0; $i--) { if ($lines[$i].Trim().StartsWith($marker)) { $start = $i; break } }
+    if ($start -lt 0) { return @() }
+    $items = @()
+    for ($i = $start + 1; $i -lt $lines.Count -and $items.Count -lt $CSReportMax; $i++) {
+        $l = $lines[$i].Trim()
+        if (-not $l) { if ($items.Count) { break } else { continue } }
+        if ($l -notmatch '^([-*•]|\d+[.)])\s+(.+)$') { break }
+        $t = $Matches[2] -replace '\[([^\]]*)\]\([^)]*\)', '$1' -replace '\*\*|__|`', ''
+        $t = $t.Trim()
+        if ($t.Length -gt $CSReportItemMax) { $t = $t.Substring(0, $CSReportItemMax - 1).TrimEnd() + '…' }
+        if ($t) { $items += $t }
+    }
+    return $items
+}
+
+# Son mesajdaki "📎 <yol>" satırları (en fazla 5). Yol ` ya da " içinde ya da [ad](yol) olarak da yazılabilir.
+function Get-StopAttachments([string]$message) {
+    if (-not $message) { return @() }
+    $paths = foreach ($p in (Get-MarkedLines $message 0x1F4CE)) {
+        if ($p -match '^\[[^\]]*\]\((.+)\)$') { $p = $Matches[1] }
+        $p = $p.Trim().Trim('`', '"', "'", '<', '>').Trim()
+        if ($p) { $p }
+    }
+    return @($paths | Select-Object -Unique | Select-Object -First $CSFilesMax)
+}
+
+# Dosya Telegram'a gönderilebilir mi? Dönüş: @{ ok; note; path; method }
+function Test-CSAttachment([string]$path) {
+    $no = { param($note) [pscustomobject]@{ ok = $false; note = $note; path = $path; method = '' } }
+    if (-not $path) { return & $no 'boş yol' }
+    if ($path -match '[*?]') { return & $no 'joker karakter' }
+    # Ağ yolları (\\sunucu, //sunucu) dosya sistemine dokunmadan reddedilir: Windows oturum özetini dışarı sızdırabilir
+    if ($path -notmatch '^[A-Za-z]:[\\/]') { return & $no 'tam yol değil' }
+    try { $full = [IO.Path]::GetFullPath($path) } catch { return & $no 'geçersiz yol' }
+    if ($full -notmatch '^[A-Za-z]:\\') { return & $no 'tam yol değil' }
+    if ($full -match $CSFileDeny -or $full.StartsWith($CSDir + '\', [StringComparison]::OrdinalIgnoreCase)) { return & $no 'gizli bilgi olabilir' }
+    $ext = [IO.Path]::GetExtension($full).ToLowerInvariant()
+    if ($ext -notin $CSFileExt) { return & $no "izinsiz uzantı ($ext)" }
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return & $no 'dosya yok' }
+    $fi = Get-Item -LiteralPath $full -Force
+    if ($fi.Attributes -band [IO.FileAttributes]::ReparsePoint) { return & $no 'kısayol/bağlantı' }
+    for ($d = $fi.Directory; $d; $d = $d.Parent) {
+        if ($d.Attributes -band [IO.FileAttributes]::ReparsePoint) { return & $no 'kısayol/bağlantı' }
+    }
+    if ($fi.Length -eq 0) { return & $no 'boş dosya' }
+    if ($fi.Length -gt $CSFileMaxBytes) { return & $no 'çok büyük (50 MB üstü)' }
+    $method = if ($ext -in $CSPhotoExt -and $fi.Length -le $CSPhotoMaxBytes) { 'sendPhoto' } else { 'sendDocument' }
+    return [pscustomobject]@{ ok = $true; note = ''; path = $full; method = $method }
+}
+
 function Format-TelegramMessage($msg) {
     $kinds = @{
         onay  = @(([char]::ConvertFromUtf32(0x26A0) + [char]0xFE0F), "Onay gerekiyor")
@@ -196,7 +273,11 @@ function Format-TelegramMessage($msg) {
     $k = if ($kinds.ContainsKey("$($msg.kind)")) { $kinds["$($msg.kind)"] } else { $kinds.bilgi }
     $esc = { param($s) "$s".Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;') }
     $title = if ($msg.project) { "$($k[0]) $(& $esc $msg.project) · $($k[1])" } else { "$($k[0]) $($k[1])" }
-    $out = [ordered]@{ text = "<b>$title</b>`n$(& $esc $msg.text)"; reply_markup = $null }
+    $text = "<b>$title</b>`n$(& $esc $msg.text)"
+    $report = @($msg.report | Where-Object { $_ })
+    if ($report.Count) { $text += "`n`n" + (($report | ForEach-Object { "• $(& $esc $_)" }) -join "`n") }
+    if ([int]$msg.filesRejected -gt 0) { $text += "`n`n$([char]::ConvertFromUtf32(0x26A0))$([char]0xFE0F) $([int]$msg.filesRejected) ek gönderilemedi" }
+    $out = [ordered]@{ text = $text; reply_markup = $null }
     if ($msg.link) { $out.reply_markup = @{ inline_keyboard = @(, @(@{ text = "Raporu aç"; url = "$($msg.link)" })) } }
     return [pscustomobject]$out
 }
@@ -232,6 +313,50 @@ function Send-CSTelegram($settings, $msg) {
     $body = [ordered]@{ chat_id = $settings.telegramChatId; text = $f.text; parse_mode = 'HTML'; disable_web_page_preview = $true }
     if ($f.reply_markup) { $body.reply_markup = $f.reply_markup }
     $null = Invoke-Telegram $token 'sendMessage' $body
+}
+
+# Tek dosyayı (Test-CSAttachment sonucu) yükler. Hata mesajına anahtarlı adres yazılmaz.
+function Send-CSTelegramFile($settings, $att) {
+    $token = Unprotect-CSSecret $settings.telegramTokenEnc
+    if (-not $token) { throw "Bot anahtarı çözülemedi" }
+    Add-Type -AssemblyName System.Net.Http
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $field = if ($att.method -eq 'sendPhoto') { 'photo' } else { 'document' }
+    $client = New-Object System.Net.Http.HttpClient
+    $client.Timeout = [TimeSpan]::FromMinutes(10)
+    $fs = [IO.File]::OpenRead($att.path)
+    try {
+        $content = New-Object System.Net.Http.MultipartFormDataContent
+        $content.Add((New-Object System.Net.Http.StringContent($settings.telegramChatId)), 'chat_id')
+        $fc = New-Object System.Net.Http.StreamContent($fs)
+        $name = [IO.Path]::GetFileName($att.path)
+        $cd = New-Object System.Net.Http.Headers.ContentDispositionHeaderValue('form-data')
+        $cd.Name = "`"$field`""
+        $cd.FileName = '"' + ($name -replace '[^\x20-\x7E]', '_' -replace '"', '') + '"'
+        $cd.FileNameStar = $name
+        $fc.Headers.ContentDisposition = $cd
+        $content.Add($fc)
+        try { $r = $client.PostAsync("https://api.telegram.org/bot$token/$($att.method)", $content).GetAwaiter().GetResult() }
+        catch { throw "bağlantı hatası ya da zaman aşımı" }
+        if (-not $r.IsSuccessStatusCode) {
+            $desc = try { ($r.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json).description } catch { '' }
+            throw "HTTP $([int]$r.StatusCode) $desc"
+        }
+    } finally { $fs.Dispose(); $client.Dispose() }
+}
+
+# Ekleri hook'tan bağımsız bir süreçte gönderir: büyük dosyalar hook süre sınırına takılmasın.
+# WMI ile başlatılan süreç hook'un süreç ağacına bağlı olmadığı için hook bitince kapanmaz.
+function Start-CSAttachmentJob($msg, [string[]]$paths, [string]$root) {
+    $dir = Join-Path $CSDir 'ekler'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $job = Join-Path $dir ('{0}-{1}.json' -f (Get-Date -Format 'yyyyMMddHHmmssfff'), ([guid]::NewGuid().ToString('N').Substring(0, 8)))
+    $data = [ordered]@{ time = $msg.time; kind = $msg.kind; project = $msg.project; files = @($paths) }
+    [IO.File]::WriteAllText($job, ($data | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
+    $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $root 'ekler.ps1')`" -Job `"$job`""
+    $si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+    $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; ProcessStartupInformation = $si }
+    if ($r.ReturnValue -ne 0) { Remove-Item -LiteralPath $job -ErrorAction SilentlyContinue; throw "ek gönderici başlatılamadı ($($r.ReturnValue))" }
 }
 
 # Bota en son mesaj atan sohbeti bulur. Dönüş: @{ chatId; name }

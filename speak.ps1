@@ -1,7 +1,8 @@
 ﻿# Claude Ses giriş noktası
 #   speak.ps1 -Text "..."     -> Claude'un ara bilgilendirmesi
 #   speak.ps1 Notification    -> hook: onay / bekleme bildirimi
-#   speak.ps1 Stop            -> hook: son mesajdaki "🔊" satırı
+#   speak.ps1 Stop            -> hook: son mesajdaki "🔊" satırı (okunur);
+#                                "📋" maddeleri ve "📎" ekleri sadece Telegram'a gider
 #   -DryRun                   -> okumadan sadece cümleyi yazdırır
 # Uygulama açıksa mesajı kuyruğa bırakır (okuyup okumamaya o karar verir);
 # kapalıysa kendisi, diğer seslerle çakışmadan sırayla okur.
@@ -48,6 +49,8 @@ function Get-StopSentence($message) {
 
 $kind = "bilgi"
 $link = ""
+$report = @()
+$files = @()
 $data = $null
 if (-not $Text) {
     $data = Get-HookInput
@@ -68,14 +71,19 @@ if (-not $Text) {
         $lastMessage = Get-LastAssistantText $data
         $Text = Get-StopSentence $lastMessage
         $link = Find-ReportLink $lastMessage
+        $report = @(Get-StopReport $lastMessage)
+        $files = @(Get-StopAttachments $lastMessage)
     }
 }
 
 $Text = Clean-SpokenText $Text
 if (-not $Text) { exit 0 }
 $project = if ($data.cwd) { Split-Path -Leaf $data.cwd } else { Split-Path -Leaf (Get-Location).Path }
-$msg = [pscustomobject]@{ time = (Get-Date).ToString('o'); kind = $kind; text = $Text; project = $project; link = "$link" }
-if ($DryRun) { [Console]::OutputEncoding = [Text.Encoding]::UTF8; Write-Output $Text; if ($link) { Write-Output "link: $link" }; exit 0 }
+$msg = [pscustomobject]@{ time = (Get-Date).ToString('o'); kind = $kind; text = $Text; project = $project; link = "$link"; report = $report; filesRejected = 0 }
+if ($DryRun) { [Console]::OutputEncoding = [Text.Encoding]::UTF8; Write-Output $Text; if ($link) { Write-Output "link: $link" }
+    $report | ForEach-Object { Write-Output "madde: $_" }
+    $files | ForEach-Object { $a = Test-CSAttachment $_; Write-Output "ek: $_ -> $(if ($a.ok) { $a.method } else { $a.note })" }
+    exit 0 }
 
 try {
     Initialize-CSDirs
@@ -89,7 +97,19 @@ try {
     $phoneMode = if ($appRunning -or $state.mode -eq 'quiet') { $state.mode } else { 'away' }
     $pd = Get-PhoneDecision $msg $settings $phoneMode (Get-IdleMinutes)
     if ($pd.send) {
-        try { Send-CSTelegram $settings $msg; Add-CSPhoneLog (Format-CSPhoneLogLine $msg $true '') }
+        if (-not $settings.phoneReport) { $msg.report = @() }
+        $okFiles = @()
+        if ($settings.phoneFiles) {
+            foreach ($f in $files) {
+                $a = Test-CSAttachment $f
+                if ($a.ok) { $okFiles += $a.path }
+                else { $msg.filesRejected++; $n = ($f -split '[\\/]')[-1]; Add-CSPhoneLog (Format-CSPhoneLogLine $msg $false "ek $n : $($a.note)") }
+            }
+        }
+        try {
+            Send-CSTelegram $settings $msg; Add-CSPhoneLog (Format-CSPhoneLogLine $msg $true '')
+            if ($okFiles.Count) { Start-CSAttachmentJob $msg $okFiles $PSScriptRoot }
+        }
         catch { Write-CSError "telegram: $_"; Add-CSPhoneLog (Format-CSPhoneLogLine $msg $false "hata: $_") }
     } else { Add-CSPhoneLog (Format-CSPhoneLogLine $msg $false $pd.note) }
 

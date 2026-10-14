@@ -61,6 +61,13 @@ Kaydedince hemen geçerli olur, yeniden başlatmak gerekmez.
 Uzaktayken (gece modu dahil) mesajlar telefonuna Telegram'dan da gider:
 - Başlıkta proje adı ve tür olur. Örnek: "✅ Zincir · İş bitti".
 - Bitiş mesajında rapor linki varsa bildirimde **"Raporu aç"** düğmesi çıkar.
+- Büyük işlerin sonunda Claude, `🔊` satırının üstüne `📋` ile en fazla 4 kısa madde yazar (ne yapıldı, sonuç, senden beklenen). Bu maddeler bildirimin altına eklenir, **sesli okunmaz**.
+- `📎 <dosya yolu>` satırlarındaki dosyalar (en fazla 5) bildirimin arkasından gelir: resimler fotoğraf, diğerleri dosya olarak.
+  - İzinli türler: png, jpg, jpeg, webp, gif, pdf, md, txt, csv, html, docx, xlsx, pptx, apk, mp4, mp3, wav. Dosya başına en fazla 50 MB.
+  - Adında ya da klasöründe `.env`, `.ssh`, `token`, `secret`, `şifre` gibi gizli bilgi işaretleri olan dosyalar hiç gönderilmez.
+  - Gönderilemeyen ek olursa bildirimde "N ek gönderilemedi" yazar, sebebi `telefon.log`'dadır.
+  - Ekler ayrı bir arka plan işlemiyle yüklenir, büyük dosyalar Claude'u bekletmez.
+- Ayarlar → Telefon'daki **Kısa rapor maddeleri** ve **Dosya ekleri** kutularıyla ikisi ayrı ayrı kapatılabilir.
 
 **Kurulum (bir kez):**
 1. Telegram'da **@BotFather**'a `/newbot` yaz, bota bir ad ver. Sana bir anahtar (token) verir.

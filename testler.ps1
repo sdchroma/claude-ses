@@ -43,6 +43,13 @@ $s2 = Get-CSSettings $tmp
 Check "kaydet/oku hız" $s2.rate "fast"
 Check "kaydet/oku gece kapalı" $s2.nightEnabled $false
 Check "kaydet/oku gece telefon kapalı" $s2.phoneNight $false
+Check "eski dosya -> rapor maddeleri açık" $s2.phoneReport $true
+Check "eski dosya -> ekler açık" $s2.phoneFiles $true
+$s2.phoneReport = $false; $s2.phoneFiles = $false
+Save-CSSettings $s2 $tmp
+$s3 = Get-CSSettings $tmp
+Check "kaydet/oku rapor kapalı" $s3.phoneReport $false
+Check "kaydet/oku ekler kapalı" $s3.phoneFiles $false
 Remove-Item $tmp
 
 Write-Host "--- Gece modu"
@@ -119,6 +126,7 @@ Write-Host "--- Telefon logu"
 $lm = [pscustomobject]@{ time = "2026-10-03T05:00:00.0000000+03:00"; kind = "bitti"; text = "x"; project = "Zincir"; link = "" }
 Check "log: gitti" (Format-CSPhoneLogLine $lm $true "") "2026-10-03 05:00:00 Zincir bitti gitti"
 Check "log: gitmedi" (Format-CSPhoneLogLine $lm $false "gece") "2026-10-03 05:00:00 Zincir bitti gitmedi: gece"
+Check "log: ek sonucu" (Format-CSPhoneLogLine $lm $true "" "ek a.png gitti") "2026-10-03 05:00:00 Zincir bitti ek a.png gitti"
 $tmpLog = Join-Path ([IO.Path]::GetTempPath()) "cs-test-telefon.log"
 Remove-Item $tmpLog -ErrorAction SilentlyContinue
 1..505 | ForEach-Object { Add-CSPhoneLog "satır $_" $tmpLog 500 }
@@ -144,6 +152,86 @@ Check "mesaj: rapor düğmesi" $f.reply_markup.inline_keyboard[0][0].url "https:
 $f2 = Format-TelegramMessage ([pscustomobject]@{ kind = "onay"; text = "Onayın gerekiyor."; project = ""; link = "" })
 Check "mesaj: projesiz başlık" ($f2.text -split "`n")[0] "<b>$([char]::ConvertFromUtf32(0x26A0))$([char]0xFE0F) Onay gerekiyor</b>"
 Check "mesaj: linksizse düğme yok" ($null -eq $f2.reply_markup) $true
+
+Write-Host "--- Rapor maddeleri ve ekler"
+$clip = [char]::ConvertFromUtf32(0x1F4CB); $pin = [char]::ConvertFromUtf32(0x1F4CE); $spk = [char]::ConvertFromUtf32(0x1F50A)
+$last = @"
+Sprint bitti, ayrıntılar aşağıda.
+
+$clip Rapor
+- Rapor ekranı **eklendi**
+- Testler geçti (``12/12``)
+* [Ayrıntı](https://x.y) Obsidian'da
+- Beşinci madde gelmemeli değil, dördüncü
+- Bu artık beşinci, alınmaz
+$pin C:\Temp\ekran.png
+$pin ``C:\Temp\rapor.pdf``
+$spk Sprint bitti, telefonda denemen gerekiyor.
+"@
+$rep = @(Get-StopReport $last)
+Check "rapor: en fazla 4 madde" $rep.Count 4
+Check "rapor: markdown temizlenir" $rep[0] "Rapor ekranı eklendi"
+Check "rapor: kod işareti temizlenir" $rep[1] "Testler geçti (12/12)"
+Check "rapor: link metne döner" $rep[2] "Ayrıntı Obsidian'da"
+Check "rapor: yoksa boş" (@(Get-StopReport "Sadece cümle.`n$spk Bitti.")).Count 0
+Check "rapor: maddesiz satırda durur" (@(Get-StopReport "$clip Rapor`n- bir`nnormal metin`n- iki")).Count 1
+Check "rapor: uzun madde kısalır" (@(Get-StopReport "$clip`n- $('a' * 300)")[0].Length) 150
+$att = @(Get-StopAttachments $last)
+Check "ek: iki yol" ($att -join '|') "C:\Temp\ekran.png|C:\Temp\rapor.pdf"
+Check "ek: [ad](yol) biçimi" (Get-StopAttachments "$pin [rapor](C:\a\b.pdf)") "C:\a\b.pdf"
+Check "ek: en fazla 5" (@(Get-StopAttachments ((1..7 | ForEach-Object { "$pin C:\a\$_.png" }) -join "`n"))).Count 5
+$hookIn = @{ last_assistant_message = $last; cwd = 'C:\x\Zincir' } | ConvertTo-Json -Compress
+$oe = $OutputEncoding; $ce = [Console]::OutputEncoding   # hook girdisi Claude Code'daki gibi UTF-8 gitsin
+$OutputEncoding = [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+$dry = @($hookIn | powershell -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\speak.ps1" Stop -DryRun)
+$OutputEncoding = $oe; [Console]::OutputEncoding = $ce
+Check "ses: okunan cümle sadece 🔊 satırı" $dry[0] "Sprint bitti, telefonda denemen gerekiyor."
+Check "ses: maddeler ayrı çıkar" $dry[1] "madde: Rapor ekranı eklendi"
+
+$td = Join-Path ([IO.Path]::GetTempPath()) "cs-test-ekler"
+Remove-Item $td -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $td, "$td\.ssh" | Out-Null
+[IO.File]::WriteAllBytes("$td\ekran.png", [byte[]](1..10))
+[IO.File]::WriteAllBytes("$td\rapor.pdf", [byte[]](1..10))
+[IO.File]::WriteAllBytes("$td\notlar.json", [byte[]](1..10))
+[IO.File]::WriteAllBytes("$td\bos.txt", [byte[]]@())
+[IO.File]::WriteAllBytes("$td\.ssh\anahtar.txt", [byte[]](1..10))
+[IO.File]::WriteAllBytes("$td\api-token.txt", [byte[]](1..10))
+[IO.File]::WriteAllBytes("$td\.env.png", [byte[]](1..10))
+function A($p) { $a = Test-CSAttachment $p; "$($a.ok)|$($a.method)$($a.note)" }
+Check "ek kontrol: resim -> fotoğraf" (A "$td\ekran.png") "True|sendPhoto"
+Check "ek kontrol: pdf -> dosya" (A "$td\rapor.pdf") "True|sendDocument"
+Check "ek kontrol: izinsiz uzantı" (A "$td\notlar.json") "False|izinsiz uzantı (.json)"
+Check "ek kontrol: boş dosya" (A "$td\bos.txt") "False|boş dosya"
+Check "ek kontrol: yok" (A "$td\yok.pdf") "False|dosya yok"
+Check "ek kontrol: .ssh klasörü" (A "$td\.ssh\anahtar.txt") "False|gizli bilgi olabilir"
+Check "ek kontrol: adında token" (A "$td\api-token.txt") "False|gizli bilgi olabilir"
+Check "ek kontrol: .env" (A "$td\.env.png") "False|gizli bilgi olabilir"
+Check "ek kontrol: göreli yol" (A "rapor.pdf") "False|tam yol değil"
+Check "ek kontrol: joker" (A "$td\*.png") "False|joker karakter"
+Check "ek kontrol: ağ yolu" (A "\\sunucu\pay\a.pdf") "False|tam yol değil"
+Check "ek kontrol: ağ yolu //" (A "//sunucu/pay/a.pdf") "False|tam yol değil"
+Check "ek kontrol: ağ yolu /\" (A "/\sunucu\pay\a.pdf") "False|tam yol değil"
+Check "ek kontrol: cihaz yolu" (A "\\.\C:\a.pdf") "False|tam yol değil"
+Check "ek kontrol: sürücüye göreli" (A "C:a.pdf") "False|tam yol değil"
+New-Item -ItemType Directory -Force "$td\gercek" | Out-Null
+[IO.File]::WriteAllBytes("$td\gercek\r.pdf", [byte[]](1..10))
+$null = cmd /c mklink /J "$td\kopru" "$td\gercek"
+Check "ek kontrol: üst klasör bağlantı" (A "$td\kopru\r.pdf") "False|kısayol/bağlantı"
+Check "ek kontrol: .. ile .ssh'a kaçış" (A "$td\x\..\.ssh\anahtar.txt") "False|gizli bilgi olabilir"
+Check "ek kontrol: ayar klasörü" (A (Join-Path $CSDir 'gecmis.txt')) "False|gizli bilgi olabilir"
+$big = [IO.File]::Create("$td\buyuk.apk"); $big.SetLength(51MB); $big.Close()
+Check "ek kontrol: 50 MB üstü" (A "$td\buyuk.apk") "False|çok büyük (50 MB üstü)"
+$big = [IO.File]::Create("$td\iri.png"); $big.SetLength(11MB); $big.Close()
+Check "ek kontrol: 10 MB üstü resim dosya olarak" (A "$td\iri.png") "True|sendDocument"
+Remove-Item $td -Recurse -Force
+
+$m3 = [pscustomobject]@{ kind = "bitti"; text = "Bitti."; project = "Zincir"; link = ""; report = @("Bir <x>", "İki"); filesRejected = 1 }
+$t3 = (Format-TelegramMessage $m3).text -split "`n"
+Check "mesaj: madde 1 kaçışlı" $t3[3] "• Bir &lt;x&gt;"
+Check "mesaj: madde 2" $t3[4] "• İki"
+Check "mesaj: gönderilemeyen ek notu" $t3[6] "$([char]::ConvertFromUtf32(0x26A0))$([char]0xFE0F) 1 ek gönderilemedi"
+Check "mesaj: raporsuz eski biçim" ((Format-TelegramMessage $m).text -split "`n").Count 2
 
 Write-Host "--- Anahtar şifreleme"
 $enc = Protect-CSSecret "123:ABC"

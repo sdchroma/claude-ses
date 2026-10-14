@@ -139,7 +139,7 @@ function Show-Settings {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Claude Ses: ayarlar"
     $form.Font = $font
-    $form.ClientSize = New-Object System.Drawing.Size(770, 445)
+    $form.ClientSize = New-Object System.Drawing.Size(770, 493)
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false; $form.MinimizeBox = $false
     $form.StartPosition = "CenterScreen"
@@ -193,7 +193,7 @@ function Show-Settings {
     # Sağ sütun: Telefon (Telegram)
     $script:pendingTokenEnc = $s.telegramTokenEnc
     $script:pendingChatId = $s.telegramChatId
-    $gPhone = Add-Group "Telefon (Telegram)" 10 390 390
+    $gPhone = Add-Group "Telefon (Telegram)" 10 438 390
     $chkPhone = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 24 "Uzaktayken telefona bildirim gönder"
     $chkPhone.Checked = $s.phoneEnabled
     $null = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 15 56 "Bot anahtarı (BotFather'dan):"
@@ -208,13 +208,18 @@ function Show-Settings {
     $null = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 15 222 "Ne gönderilsin:"
     $chkPApproval = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 244 "Onay istekleri"
     $chkPDone = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 268 "İş bitti özetleri (rapor linkiyle)"
-    $chkPInfo = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 292 "Ara bilgilendirmeler"
+    $chkPInfo = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 340 "Ara bilgilendirmeler"
+    $chkPReport = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 35 292 "Kısa rapor maddeleri"
+    $chkPFiles = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 35 316 "Dosya ekleri (resim, PDF, APK…)"
     $chkPApproval.Checked = $s.phoneApproval; $chkPDone.Checked = $s.phoneDone; $chkPInfo.Checked = $s.phoneInfo
-    $chkPNight = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 322 "Gece modunda da gönder"
+    $chkPReport.Checked = $s.phoneReport; $chkPFiles.Checked = $s.phoneFiles
+    $chkPDone.add_CheckedChanged({ $chkPReport.Enabled = $chkPDone.Checked; $chkPFiles.Enabled = $chkPDone.Checked })
+    $chkPReport.Enabled = $chkPDone.Checked; $chkPFiles.Enabled = $chkPDone.Checked
+    $chkPNight = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 370 "Gece modunda da gönder"
     $chkPNight.Checked = $s.phoneNight
-    $btnPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Button) 15 352 "Test bildirimi gönder"
+    $btnPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Button) 15 400 "Test bildirimi gönder"
     $btnPhoneTest.Width = 160
-    $lblPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 185 357 ""
+    $lblPhoneTest = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 185 405 ""
     $lblPhoneTest.MaximumSize = "175,0"
 
     $btnConnect.add_Click({
@@ -249,12 +254,12 @@ function Show-Settings {
     })
 
     $selectedRate = { @($rateNames.Keys)[$cmbRate.SelectedIndex] }
-    $btnTest = Add-Ctl $form (New-Object System.Windows.Forms.Button) 10 410 "Sesi dene"
+    $btnTest = Add-Ctl $form (New-Object System.Windows.Forms.Button) 10 458 "Sesi dene"
     $btnTest.Width = 90
     $btnTest.add_Click({ try { Start-Speech "Ses testi, Claude Ses çalışıyor." (& $selectedRate) } catch { Write-CSError "test: $_" } })
-    $btnSave = Add-Ctl $form (New-Object System.Windows.Forms.Button) 580 410 "Kaydet"
+    $btnSave = Add-Ctl $form (New-Object System.Windows.Forms.Button) 580 458 "Kaydet"
     $btnSave.Width = 85; $btnSave.DialogResult = "OK"
-    $btnCancel = Add-Ctl $form (New-Object System.Windows.Forms.Button) 675 410 "İptal"
+    $btnCancel = Add-Ctl $form (New-Object System.Windows.Forms.Button) 675 458 "İptal"
     $btnCancel.Width = 85; $btnCancel.DialogResult = "Cancel"
     $form.AcceptButton = $btnSave; $form.CancelButton = $btnCancel
 
@@ -274,6 +279,8 @@ function Show-Settings {
         $new.phoneDone = $chkPDone.Checked
         $new.phoneInfo = $chkPInfo.Checked
         $new.phoneNight = $chkPNight.Checked
+        $new.phoneReport = $chkPReport.Checked
+        $new.phoneFiles = $chkPFiles.Checked
         $new.telegramTokenEnc = $script:pendingTokenEnc
         $new.telegramChatId = $script:pendingChatId
         Save-CSSettings $new
