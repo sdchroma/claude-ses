@@ -53,6 +53,7 @@ function New-CSDefaultSettings {
         speakApproval = $true      # onay istekleri
         speakDone     = $true      # iş bitti özetleri
         speakInfo     = $true      # ara bilgilendirmeler
+        chimeHere     = $true      # başındayken onay/iş bitti için kısa ses
         maxAgeMin     = 2          # bundan eski mesajlar okunmaz
         startup       = $true      # bilgisayar açılınca başla
         rate          = "normal"   # slow | normal | fast
@@ -78,7 +79,7 @@ function Get-CSSettings([string]$path = $CSSettingsPath) {
             $v = $f.$k
             if ($null -eq $v) { continue }
             switch ($k) {
-                { $_ -in 'nightEnabled', 'speakApproval', 'speakDone', 'speakInfo', 'startup', 'phoneEnabled', 'phoneApproval', 'phoneDone', 'phoneInfo', 'phoneNight', 'phoneReport', 'phoneFiles' } { if ($v -is [bool]) { $s[$k] = $v } }
+                { $_ -in 'nightEnabled', 'speakApproval', 'speakDone', 'speakInfo', 'chimeHere', 'startup', 'phoneEnabled', 'phoneApproval', 'phoneDone', 'phoneInfo', 'phoneNight', 'phoneReport', 'phoneFiles' } { if ($v -is [bool]) { $s[$k] = $v } }
                 'telegramTokenEnc' { $s[$k] = "$v" }
                 'telegramChatId' { if ("$v" -match '^-?\d+$') { $s[$k] = "$v" } }
                 'nightTime' { if ("$v" -match '^([01]\d|2[0-3]):[0-5]\d$') { $s[$k] = "$v" } }
@@ -134,15 +135,47 @@ function Update-NightState($state, $settings, [datetime]$now) {
     return $true
 }
 
+# chime: başındayken konuşmak yerine kısa ses (sadece onay ve iş bitti)
 function Get-SpeakDecision($msg, $settings, [string]$mode, [double]$idleMin, [datetime]$now) {
-    $no = { param($note) [pscustomobject]@{ speak = $false; note = $note } }
+    $no = { param($note) [pscustomobject]@{ speak = $false; chime = $false; note = $note } }
     if ($mode -eq 'quiet') { return & $no 'gece' }
     $kindOn = switch ($msg.kind) { 'onay' { $settings.speakApproval } 'bitti' { $settings.speakDone } default { $settings.speakInfo } }
     if (-not $kindOn) { return & $no 'kapalı tür' }
     $away = switch ($mode) { 'here' { $false } 'away' { $true } default { $idleMin -ge $settings.idleMin } }
-    if (-not $away) { return & $no 'buradaydın' }
-    if (($now - [datetime]$msg.time).TotalMinutes -gt $settings.maxAgeMin) { return & $no 'eski' }
-    return [pscustomobject]@{ speak = $true; note = '' }
+    $old = ($now - [datetime]$msg.time).TotalMinutes -gt $settings.maxAgeMin
+    if (-not $away) {
+        if ($settings.chimeHere -and $msg.kind -in 'onay', 'bitti' -and -not $old) { return [pscustomobject]@{ speak = $false; chime = $true; note = 'kısa ses' } }
+        return & $no 'buradaydın'
+    }
+    if ($old) { return & $no 'eski' }
+    return [pscustomobject]@{ speak = $true; chime = $false; note = '' }
+}
+
+# Kısa bildirim sesi (WAV): bitti = yükselen iki nota, onay = tek, biraz daha uzun nota
+function Get-ChimeBytes([string]$kind) {
+    $rate = 44100
+    $notes = @(@(659.25, 0.0, 0.22), @(880.0, 0.11, 0.30))
+    if ($kind -eq 'onay') { $notes = @(, @(523.25, 0.0, 0.35)) }
+    $total = [int]($rate * (($notes | ForEach-Object { $_[1] + $_[2] } | Measure-Object -Maximum).Maximum))
+    $buf = New-Object double[] $total
+    foreach ($n in $notes) {
+        $start = [int]($n[1] * $rate); $len = [int]($n[2] * $rate)
+        for ($i = 0; $i -lt $len -and ($start + $i) -lt $total; $i++) {
+            $t = $i / $rate
+            $env = [Math]::Min(1.0, $i / 220.0) * [Math]::Exp(-$t * 12)   # yumuşak başlangıç, çan gibi sönme
+            $w = [Math]::Sin(2 * [Math]::PI * $n[0] * $t) + 0.25 * [Math]::Sin(4 * [Math]::PI * $n[0] * $t)
+            $buf[$start + $i] += 0.16 * $env * $w
+        }
+    }
+    $ms = New-Object IO.MemoryStream
+    $bw = New-Object IO.BinaryWriter($ms)
+    $data = $total * 2
+    $bw.Write([Text.Encoding]::ASCII.GetBytes('RIFF')); $bw.Write([int](36 + $data)); $bw.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+    $bw.Write([int]16); $bw.Write([int16]1); $bw.Write([int16]1); $bw.Write([int]$rate); $bw.Write([int]($rate * 2)); $bw.Write([int16]2); $bw.Write([int16]16)
+    $bw.Write([Text.Encoding]::ASCII.GetBytes('data')); $bw.Write([int]$data)
+    foreach ($v in $buf) { $bw.Write([int16]([Math]::Max(-1.0, [Math]::Min(1.0, $v)) * 32767)) }
+    $bw.Flush()
+    return , $ms.ToArray()
 }
 
 # Telefon: sadece uzaktayken (gece dahil); ses kuyruğunu beklemez, eski mesaj sınırı yok

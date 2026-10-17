@@ -110,6 +110,14 @@ function Start-Speech([string]$text, [string]$rate = $script:settings.rate) {
     $script:busyUntil = (Get-Date) + (Get-WavDuration $bytes) + [TimeSpan]::FromMilliseconds(400)
 }
 
+function Start-Chime([string]$kind, [bool]$sync = $false) {
+    $bytes = Get-ChimeBytes $kind
+    $script:player = New-Object System.Media.SoundPlayer((New-Object System.IO.MemoryStream(, $bytes)))
+    if ($sync) { $script:player.PlaySync(); return }
+    $script:player.Play()
+    $script:busyUntil = (Get-Date) + (Get-WavDuration $bytes) + [TimeSpan]::FromMilliseconds(200)
+}
+
 function Show-History {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Claude Ses: son mesajlar"
@@ -124,7 +132,7 @@ function Show-History {
     [array]::Reverse($items)
     foreach ($h in $items) {
         $t = ([datetime]$h.time).ToString("dd.MM HH:mm")
-        $s = if ($h.spoken) { "okundu" } else { "sessiz: $($h.note)" }
+        $s = if ($h.spoken) { "okundu" } elseif ($h.note -eq "kısa ses") { "kısa ses" } else { "sessiz: $($h.note)" }
         $null = $list.Items.Add("$t   [$s]   $($h.text)")
     }
     if ($items.Count -eq 0) { $null = $list.Items.Add("Henüz mesaj yok.") }
@@ -139,7 +147,7 @@ function Show-Settings {
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "Claude Ses: ayarlar"
     $form.Font = $font
-    $form.ClientSize = New-Object System.Drawing.Size(770, 493)
+    $form.ClientSize = New-Object System.Drawing.Size(770, 540)
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false; $form.MinimizeBox = $false
     $form.StartPosition = "CenterScreen"
@@ -190,10 +198,18 @@ function Show-Settings {
     foreach ($v in $rateNames.Values) { $null = $cmbRate.Items.Add($v) }
     $cmbRate.SelectedIndex = [array]::IndexOf(@($rateNames.Keys), $s.rate)
 
+    $gChime = Add-Group "Başındayken" 410 85
+    $chkChime = Add-Ctl $gChime (New-Object System.Windows.Forms.CheckBox) 15 24 "Konuşmak yerine kısa ses çal (onay ve iş bitti)"
+    $chkChime.Checked = $s.chimeHere
+    $btnChime = Add-Ctl $gChime (New-Object System.Windows.Forms.Button) 15 50 "Sesleri dene"
+    $btnChime.Width = 110
+    $null = Add-Ctl $gChime (New-Object System.Windows.Forms.Label) 135 55 "Önce iş bitti, sonra onay sesi"
+    $btnChime.add_Click({ try { Start-Chime "bitti" $true; Start-Sleep -Milliseconds 500; Start-Chime "onay" $true } catch { Write-CSError "chime test: $_" } })
+
     # Sağ sütun: Telefon (Telegram)
     $script:pendingTokenEnc = $s.telegramTokenEnc
     $script:pendingChatId = $s.telegramChatId
-    $gPhone = Add-Group "Telefon (Telegram)" 10 438 390
+    $gPhone = Add-Group "Telefon (Telegram)" 10 485 390
     $chkPhone = Add-Ctl $gPhone (New-Object System.Windows.Forms.CheckBox) 15 24 "Uzaktayken telefona bildirim gönder"
     $chkPhone.Checked = $s.phoneEnabled
     $null = Add-Ctl $gPhone (New-Object System.Windows.Forms.Label) 15 56 "Bot anahtarı (BotFather'dan):"
@@ -254,12 +270,12 @@ function Show-Settings {
     })
 
     $selectedRate = { @($rateNames.Keys)[$cmbRate.SelectedIndex] }
-    $btnTest = Add-Ctl $form (New-Object System.Windows.Forms.Button) 10 458 "Sesi dene"
+    $btnTest = Add-Ctl $form (New-Object System.Windows.Forms.Button) 10 505 "Sesi dene"
     $btnTest.Width = 90
     $btnTest.add_Click({ try { Start-Speech "Ses testi, Claude Ses çalışıyor." (& $selectedRate) } catch { Write-CSError "test: $_" } })
-    $btnSave = Add-Ctl $form (New-Object System.Windows.Forms.Button) 580 458 "Kaydet"
+    $btnSave = Add-Ctl $form (New-Object System.Windows.Forms.Button) 580 505 "Kaydet"
     $btnSave.Width = 85; $btnSave.DialogResult = "OK"
-    $btnCancel = Add-Ctl $form (New-Object System.Windows.Forms.Button) 675 458 "İptal"
+    $btnCancel = Add-Ctl $form (New-Object System.Windows.Forms.Button) 675 505 "İptal"
     $btnCancel.Width = 85; $btnCancel.DialogResult = "Cancel"
     $form.AcceptButton = $btnSave; $form.CancelButton = $btnCancel
 
@@ -271,6 +287,7 @@ function Show-Settings {
         $new.speakApproval = $chkApproval.Checked
         $new.speakDone = $chkDone.Checked
         $new.speakInfo = $chkInfo.Checked
+        $new.chimeHere = $chkChime.Checked
         $new.maxAgeMin = [int]$numAge.Value
         $new.startup = $chkStartup.Checked
         $new.rate = & $selectedRate
@@ -321,6 +338,7 @@ $timer.add_Tick({
         $msg = Get-Content $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
         Remove-Item $file.FullName -Force
         $d = Get-SpeakDecision $msg $script:settings $script:state.mode (Get-IdleMinutes) (Get-Date)
+        if ($d.chime) { Start-Chime $msg.kind; Add-CSHistory $msg $false $d.note; return }
         if (-not $d.speak) { Add-CSHistory $msg $false $d.note; return }
         Start-Speech $msg.text
         Add-CSHistory $msg $true ""

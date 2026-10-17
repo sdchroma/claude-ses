@@ -1,6 +1,6 @@
 # Claude Ses
 
-Claude Code çalışırken bilgisayar başında değilsen onay isteklerini, iş bitişlerini ve önemli ara gelişmeleri Türkçe sesli söyler, istersen Telegram'dan telefonuna da gönderir. Başındayken susar.
+Claude Code çalışırken bilgisayar başında değilsen onay isteklerini, iş bitişlerini ve önemli ara gelişmeleri Türkçe sesli söyler, istersen Telegram'dan telefonuna da gönderir. Başındayken konuşmaz; onay isteği ya da iş bitince sadece çok kısa bir ses çalar.
 
 Sadece Windows'ta çalışır (10/11). Ek program gerekmez, Windows'un kendi PowerShell'iyle çalışır.
 
@@ -29,7 +29,7 @@ Saatin yanında yuvarlak bir simge çıkar. Sağ tıklayınca şu menü açılı
 
 | Seçenek | Anlamı |
 |---|---|
-| Buradayım | Her zaman sessiz |
+| Buradayım | Konuşmaz, sadece kısa ses çalar |
 | Uzaktayım | Her zaman sesli |
 | Otomatik (varsayılan) | Belirlenen süre (10 dk) klavye/fare hareketsizliğinde sesli, dokununca sessiz |
 | Sessiz (gece) | Her şey susar (onay istekleri dahil), uygulama kapalı olsa bile |
@@ -53,6 +53,7 @@ Simgenin rengi anlamı:
 - **Gece modu:** açık/kapalı ve saati.
 - **Otomatik mod:** kaç dakika hareketsizlikte "uzakta" sayılacağın.
 - **Ne okunsun:** onay istekleri, iş bitti özetleri ve ara bilgilendirmeler ayrı ayrı açılıp kapatılabilir.
+- **Başındayken:** konuşmak yerine kısa ses çalsın mı (varsayılan açık). İş bitince yükselen iki notalı bir zil, onay isteğinde tek notalı bir ses çalar. Ara bilgilendirmelerde ses çıkmaz, gece modunda da çalmaz. "Sesleri dene" ikisini dinletir.
 - **Diğer:** kaç dakikadan eski mesajların okunmayacağı, bilgisayar açılınca başlama, konuşma hızı (yavaş / normal / hızlı).
 
 Kaydedince hemen geçerli olur, yeniden başlatmak gerekmez.

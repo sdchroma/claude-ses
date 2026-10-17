@@ -43,6 +43,7 @@ $s2 = Get-CSSettings $tmp
 Check "kaydet/oku hız" $s2.rate "fast"
 Check "kaydet/oku gece kapalı" $s2.nightEnabled $false
 Check "kaydet/oku gece telefon kapalı" $s2.phoneNight $false
+Check "eski dosya -> kısa ses açık" $s2.chimeHere $true
 Check "eski dosya -> rapor maddeleri açık" $s2.phoneReport $true
 Check "eski dosya -> ekler açık" $s2.phoneFiles $true
 $s2.phoneReport = $false; $s2.phoneFiles = $false
@@ -91,15 +92,33 @@ Write-Host "--- Okunsun mu kararı"
 $now = At "2026-10-02 15:00"
 function Msg($kind, $minAgo) { [pscustomobject]@{ kind = $kind; time = $now.AddMinutes(-$minAgo).ToString('o'); text = "x" } }
 function D($msg, $mode, $idle, $settings = $set) { $d = Get-SpeakDecision $msg $settings $mode $idle $now; "$($d.speak)|$($d.note)" }
+$noChime = Get-CSSettings "yok.json"; $noChime.chimeHere = $false
 
 Check "gece -> sessiz" (D (Msg "onay" 0) "quiet" 60) "False|gece"
-Check "buradayım -> sessiz" (D (Msg "bitti" 0) "here" 60) "False|buradaydın"
+Check "buradayım, kısa ses kapalı -> sessiz" (D (Msg "bitti" 0) "here" 60 $noChime) "False|buradaydın"
+Check "buradayım, bitti -> kısa ses" (D (Msg "bitti" 0) "here" 60) "False|kısa ses"
+Check "buradayım, onay -> kısa ses" (D (Msg "onay" 0) "here" 60) "False|kısa ses"
+Check "buradayım, ara bilgi -> ses yok" (D (Msg "bilgi" 0) "here" 60) "False|buradaydın"
+Check "buradayım, 3 dk eski -> ses yok" (D (Msg "bitti" 3) "here" 60) "False|buradaydın"
+Check "kısa ses bayrağı" ((Get-SpeakDecision (Msg "bitti" 0) $set "here" 0 $now).chime) "True"
+Check "uzakta kısa ses yok" ((Get-SpeakDecision (Msg "bitti" 0) $set "away" 0 $now).chime) "False"
+Check "gece kısa ses yok" ((Get-SpeakDecision (Msg "bitti" 0) $set "quiet" 0 $now).chime) "False"
+Check "otomatik 5 dk, bitti -> kısa ses" (D (Msg "bitti" 0) "auto" 5) "False|kısa ses"
 Check "uzakta -> okunur" (D (Msg "bitti" 0) "away" 0) "True|"
 Check "otomatik, 5 dk -> sessiz" (D (Msg "bilgi" 0) "auto" 5) "False|buradaydın"
 Check "otomatik, 12 dk -> okunur" (D (Msg "bilgi" 0) "auto" 12) "True|"
 Check "3 dk eski -> okunmaz" (D (Msg "bitti" 3) "away" 0) "False|eski"
 $noApproval = Get-CSSettings "yok.json"; $noApproval.speakApproval = $false
 Check "onay kapalı -> okunmaz" (D (Msg "onay" 0) "away" 0 $noApproval) "False|kapalı tür"
+Check "onay kapalı -> başındayken de ses yok" (D (Msg "onay" 0) "here" 0 $noApproval) "False|kapalı tür"
+
+Write-Host "--- Kısa ses"
+foreach ($k in "bitti", "onay") {
+    $b = Get-ChimeBytes $k
+    Check "kısa ses $k WAV başlığı" ([Text.Encoding]::ASCII.GetString($b, 0, 4)) "RIFF"
+    $dur = (Get-WavDuration $b).TotalSeconds
+    Check "kısa ses $k yarım saniyeden kısa" ($dur -gt 0.2 -and $dur -lt 0.5) "True"
+}
 Check "onay kapalıyken bitti okunur" (D (Msg "bitti" 0) "away" 0 $noApproval) "True|"
 
 Write-Host "--- Telefon: ne zaman gitsin"
