@@ -4,7 +4,10 @@ Claude Code çalışırken bilgisayar başında değilsen onay isteklerini, iş 
 
 Sadece Windows'ta çalışır (10/11). Ek program gerekmez, Windows'un kendi PowerShell'iyle çalışır.
 
-## Kurulum (her bilgisayarda bir kez)
+## En kolay yol: Claude ile kurulum
+[KURULUM-PROMPT.md](KURULUM-PROMPT.md) dosyasındaki metni kopyalayıp yeni bilgisayardaki Claude Code'a yapıştır. Claude indirir, kurar, kontrol eder ve uygulamayı nasıl kullanacağını öğrenir. Aynı metin güncelleme için de çalışır.
+
+## Elle kurulum (her bilgisayarda bir kez)
 1. Klasörü indir. Git ile:
    ```
    git clone https://github.com/sdchroma/claude-ses.git
