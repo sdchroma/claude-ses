@@ -115,6 +115,12 @@ try {
 
     if ($appRunning) { New-CSMessage $Text $kind; exit 0 }
 
+    # Uygulama beklenmedik şekilde kapanmışsa yeniden aç; bu mesajı yine burada okuruz
+    if (Test-CSRelaunch $state (Get-Date)) {
+        $state.lastRelaunch = (Get-Date).ToString('o'); Save-CSState $state
+        try { Start-CSApp $PSScriptRoot } catch { Write-CSError "yeniden açma: $_" }
+    }
+
     # Uygulama kapalı: gece/sessiz ve "ne okunsun" ayarları yine geçerli; değilse "uzaktayım" kabul edilir, sırayla okunur
     $mode = if ($state.mode -eq 'quiet') { 'quiet' } else { 'away' }
     $mutex = New-Object System.Threading.Mutex($false, $CSSpeakMutex)

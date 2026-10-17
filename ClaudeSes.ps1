@@ -14,6 +14,7 @@ if (-not $createdNew) { exit 0 }
 Initialize-CSDirs
 $script:settings = Get-CSSettings
 $script:state = Get-CSState
+if ($script:state.exited) { $script:state.exited = $false; Save-CSState $script:state }
 $script:busyUntil = [datetime]::MinValue
 $script:player = $null
 $modeNames = @{ auto = "Otomatik"; here = "Buradayım"; away = "Uzaktayım"; quiet = "Sessiz (gece)" }
@@ -317,7 +318,7 @@ $itemHistory.add_Click({ Show-History })
 $itemSettings.add_Click({ Show-Settings })
 $tray.add_MouseClick({ param($s, $e) if ($e.Button -eq 'Left') { Show-History } })
 $itemTest.add_Click({ try { Start-Speech "Ses testi, Claude Ses çalışıyor." } catch { Write-CSError "test: $_" } })
-$itemExit.add_Click({ $timer.Stop(); $tray.Visible = $false; [System.Windows.Forms.Application]::Exit() })
+$itemExit.add_Click({ $script:state.exited = $true; Save-CSState $script:state; $timer.Stop(); $tray.Visible = $false; [System.Windows.Forms.Application]::Exit() })
 
 function Invoke-NightCheck {
     if (Update-NightState $script:state $script:settings (Get-Date)) { Save-CSState $script:state }

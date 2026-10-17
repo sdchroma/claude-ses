@@ -51,7 +51,7 @@ if (-not $NoStartup) {
 }
 
 if (-not $NoLaunch) {
-    if (-not (Test-CSAppRunning)) { Start-Process "$env:WINDIR\System32\wscript.exe" -ArgumentList "`"$vbs`"" }
+    if (-not (Test-CSAppRunning)) { Start-CSApp $root }
     Write-Host "  [ok] Uygulama çalışıyor (saatin yanındaki yuvarlak simge)"
 }
 

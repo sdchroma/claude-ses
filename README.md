@@ -89,7 +89,8 @@ Uzaktayken (gece modu dahil) mesajlar telefonuna Telegram'dan da gider:
 - **Hook'lar:** Claude Code onay istediğinde ve iş bitince `speak.ps1` dosyasını çağırır. Bitişte Claude'un son mesajındaki `🔊` satırı okunur.
 - **Sıra:** Mesajlar sıraya girer ve uygulama bunları tek tek okur, sesler üst üste binmez. Ayarlanan süreden (varsayılan 2 dk) eski mesajlar okunmaz.
 - **Temizleme:** Okunmadan önce dosya adları, klasör yolları, linkler, kod parçaları ve emojiler cümleden çıkarılır.
-- **Uygulama kapalıysa:** Sesler yine sırayla okunur ve "uzaktayım" kabul edilir.
+- **Uygulama kapalıysa:** Sesler yine sırayla okunur ve "uzaktayım" kabul edilir. Menüden Çıkış ile kapatmadıysan uygulama ilk mesajda kendiliğinden yeniden açılır (en fazla 10 dakikada bir dener).
+- **Claude içinden başlatma:** Uygulama her zaman Gezgin üzerinden başlatılır. Claude'un içinden doğrudan başlatılan kopya, Claude güncellenirken onunla birlikte kapanıyordu.
 
 ## Dosyalar
 | Dosya | Görevi |

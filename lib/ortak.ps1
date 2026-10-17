@@ -98,13 +98,16 @@ function Save-CSSettings($s, [string]$path = $CSSettingsPath) {
 }
 
 # mode: auto | here | away | quiet (gece);  prevMode: gece öncesi mod;  lastNight: son otomatik sessize geçilen gece
+# exited: kullanıcı menüden Çıkış dedi (kendiliğinden yeniden açılmaz);  lastRelaunch: son kendiliğinden açılış
 function Get-CSState {
-    $st = [ordered]@{ mode = "auto"; prevMode = "auto"; lastNight = "" }
+    $st = [ordered]@{ mode = "auto"; prevMode = "auto"; lastNight = ""; exited = $false; lastRelaunch = "" }
     try {
         $f = [IO.File]::ReadAllText($CSState, [Text.Encoding]::UTF8) | ConvertFrom-Json
         if ($f.mode -in 'auto', 'here', 'away', 'quiet') { $st.mode = $f.mode }
         if ($f.prevMode -in 'auto', 'here', 'away') { $st.prevMode = $f.prevMode }
         if ($f.lastNight) { $st.lastNight = [string]$f.lastNight }
+        if ($f.exited -eq $true) { $st.exited = $true }
+        if ($f.lastRelaunch) { $st.lastRelaunch = [string]$f.lastRelaunch }
     } catch {}
     return $st
 }
@@ -430,6 +433,21 @@ function Set-CSStartup([string]$root, [bool]$on) {
     $sc.Arguments = "`"$(Join-Path $root 'baslat.vbs')`""
     $sc.WorkingDirectory = $root
     $sc.Save()
+}
+
+# Uygulamayı Gezgin üzerinden başlatır. Claude'un içinden (hook, oturum) doğrudan başlatılan
+# kopya Claude'un işlem grubunda kalır ve Claude güncellenirken onunla birlikte kapatılır.
+function Start-CSApp([string]$root) {
+    Start-Process "$env:WINDIR\explorer.exe" -ArgumentList "`"$(Join-Path $root 'baslat.vbs')`""
+}
+
+# Uygulama kapalıyken kendiliğinden yeniden açılsın mı: Çıkış ile kapatılmadıysa ve
+# son denemeden beri en az $cooldownMin dakika geçtiyse (açılışta çöküyorsa döngüye girmesin).
+function Test-CSRelaunch($state, [datetime]$now, [int]$cooldownMin = 10) {
+    if ($state.exited) { return $false }
+    if (-not $state.lastRelaunch) { return $true }
+    try { $last = [datetime]::Parse($state.lastRelaunch, [Globalization.CultureInfo]::InvariantCulture) } catch { return $true }
+    return (($now - $last).TotalMinutes -ge $cooldownMin)
 }
 
 function Get-SpeechBytes([string]$text, [string]$rate = "normal") {

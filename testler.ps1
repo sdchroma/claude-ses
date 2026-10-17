@@ -258,5 +258,13 @@ Check "şifreli hali düz metin değil" ($enc.Contains("123:ABC")) $false
 Check "çözülünce aynı" (Unprotect-CSSecret $enc) "123:ABC"
 Check "boş anahtar" (Unprotect-CSSecret "") ""
 
+Write-Host "--- Kendiliğinden yeniden açma"
+$now = [datetime]'2026-10-17 20:00'
+Check "ilk kez: aç" (Test-CSRelaunch ([ordered]@{ exited = $false; lastRelaunch = "" }) $now) $true
+Check "Çıkış ile kapatıldı: açma" (Test-CSRelaunch ([ordered]@{ exited = $true; lastRelaunch = "" }) $now) $false
+Check "3 dk önce denendi: açma" (Test-CSRelaunch ([ordered]@{ exited = $false; lastRelaunch = $now.AddMinutes(-3).ToString('o') }) $now) $false
+Check "15 dk önce denendi: aç" (Test-CSRelaunch ([ordered]@{ exited = $false; lastRelaunch = $now.AddMinutes(-15).ToString('o') }) $now) $true
+Check "bozuk tarih: aç" (Test-CSRelaunch ([ordered]@{ exited = $false; lastRelaunch = "x" }) $now) $true
+
 Write-Host "`n$($total - $fail)/$total geçti"
 exit $fail
